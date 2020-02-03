@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>CloudNotes</title>
+    <link href="content/css/main.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <div class="container-search">
+        <div class="search" ref="search">
+          <input
+            type="search"
+            v-model="searchTerms"
+            @keydown="searchKeydown"
+            title="Alt+S"
+          />
+          <button
+            class="btn btn-clear-search"
+            @click="clearSearch"
+            v-show="searchTerms"
+            title="Alt+C"
+          >
+            <img src="/content/svg/cancel-black.svg" />
+          </button>
+          <button class="btn btn-search" @click="doSearch">
+            <img src="/content/svg/magnifying-glass.svg" />
+          </button>
+        </div>
+      </div>
+      <div class="container">
+        <ul class="list" ref="list">
+          <li
+            v-for="(item, index) in list"
+            :key="index"
+            :class="{ selected: list[index].selected }"
+          >
+            <div
+              class="checkbox-container"
+              :class="{ selected: list[index].selected }"
+            >
+              <div
+                class="checkbox"
+                @click="checkboxClick($event, list[index])"
+              ></div>
+            </div>
+
+            <input
+              v-model="list[index].value"
+              class="text-input"
+              @keydown="itemKeydown"
+              @focus="updateFocused"
+              @blur="clearFocused($event, list[index])"
+            />
+
+            <button class="btn">
+              <img src="/content/svg/right-arrow.svg" />
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div class="container-actions">
+        <button
+          ref="btnNew"
+          class="btn btn-new"
+          @click="newItem"
+          title="Alt+N"
+          v-show="!isSearch"
+        >
+          <img src="/content/svg/plus.svg" />
+        </button>
+        <button
+          ref="btnDelete"
+          class="btn btn-delete"
+          @click="deleteItem"
+          title="Alt+D"
+        >
+          <img src="/content/svg/cancel.svg" />
+        </button>
+      </div>
+    </div>
+    <script src="/content/js/vue.js"></script>
+    <script src="/content/js/fuzzysort.js"></script>
+    <script>
+      var app = new Vue({
+        el: "#app",
+        data() {
+          return {
+            list: [],
+            focused: null,
+            isSearch: false,
+            searchTerms: "",
+            results: [...Array(5).keys()].map(i => {
+              return {
+                id: i,
+                value: `Item ${i + 1}`,
+                selected: false
+              };
+            })
+          };
+        },
+
+        mounted() {
+          document.addEventListener("keydown", event => {
+            if (event.altKey) {
+              if (event.key === "n") {
+                this.newItem();
+                event.preventDefault();
+              }
+
+              if (event.key === "d") {
+                this.deleteItem();
+                event.preventDefault();
+              }
+
+              if (event.key === "s") {
+                this.$refs.search.querySelector("input").focus();
+                event.preventDefault();
+              }
+
+              if (event.key === "c") {
+                this.clearSearch();
+                event.preventDefault();
+              }
+            }
+          });
+
+          function fixScrollbar(event) {
+            // Creating invisible container
+            const outer = document.createElement("div");
+            outer.style.visibility = "hidden";
+            outer.style.overflow = "scroll"; // forcing scrollbar to appear
+            outer.style.msOverflowStyle = "scrollbar"; // needed for WinJS apps
+            document.body.appendChild(outer);
+
+            // Creating inner element and placing it in the container
+            const inner = document.createElement("div");
+            outer.appendChild(inner);
+
+            // Calculating difference between container's full width and the child width
+            const scrollbarWidth = outer.offsetWidth - inner.offsetWidth;
+
+            // Removing temporary elements from the DOM
+            outer.parentNode.removeChild(outer);
+
+            document.querySelector(".container-search").style.right =
+              scrollbarWidth + "px";
+          }
+
+          function fixScrollbarDelayed() {
+            window.setTimeout(fixScrollbar, 50);
+          }
+          fixScrollbar();
+          window.addEventListener("resize", fixScrollbarDelayed);
+          window.addEventListener("orientationchange ", fixScrollbarDelayed);
+
+          this.list = this.results;
+        },
+
+        methods: {
+          checkboxClick(event, item) {
+            //console.log(event.target.parentElement.parentElement);
+            item.selected = !item.selected;
+          },
+          insertTextAtCursor(text) {
+            var sel, range, html;
+            if (window.getSelection) {
+              sel = window.getSelection();
+              if (sel.getRangeAt && sel.rangeCount) {
+                range = sel.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(document.createTextNode(text));
+              }
+            } else if (document.selection && document.selection.createRange) {
+              document.selection.createRange().text = text;
+            }
+          },
+          searchKeydown(event) {
+            const code = event.code || event.key;
+            if (code === "ArrowDown") {
+              const target = this.$refs.list.querySelector(".text-input");
+              if (target) {
+                this.setSelected(target);
+              }
+            } else if (code === "Enter") {
+              this.doSearch();
+            }
+          },
+          setSelected(input) {
+            input.focus();
+            const index = this.getIndex(input.parentElement);
+            this.clearSelection();
+            this.list[index].selected = true;
+          },
+          clearSearch() {
+            this.searchTerms = "";
+            this.doSearch();
+          },
+          doSearch() {
+            if (!this.searchTerms) {
+              this.list = this.results;
+              this.isSearch = false;
+            } else {
+              this.list = fuzzysort
+                .go(this.searchTerms, this.results, { key: "value" })
+                .map(result => {
+                  return result.obj;
+                });
+              this.isSearch = true;
+            }
+          },
+          itemKeydown(event) {
+            const code = event.code || event.key;
+            if (code === "ArrowDown") {
+              this.moveDown(event.target);
+            } else if (code === "ArrowUp") {
+              this.moveUp(event.target);
+            } else if (code === "Enter") {
+              this.newItem(event);
+            }
+          },
+          updateFocused(event) {
+            this.focused = event.target;
+            this.setSelected(this.focused);
+          },
+          clearFocused(event, item) {
+            if (
+              this.$refs.btnNew === event.relatedTarget ||
+              this.$refs.btnDelete === event.relatedTarget
+            ) {
+              this.focused = event.target;
+            } else {
+              this.focused = null;
+            }
+          },
+          clearSelection() {
+            this.list.forEach(item => {
+              item.selected = false;
+            });
+          },
+          newItem() {
+            let target = null;
+            if (this.focused) {
+              const index = this.getIndex(this.focused.parentElement);
+              this.list.splice(index + 1, 0, {
+                id: -1,
+                value: "",
+                selected: false
+              });
+              target = this.focused;
+            } else {
+              target = this.$refs.list.querySelector(
+                "li:last-child .text-input"
+              );
+              this.list.push({ id: -1, value: "", selected: false });
+            }
+
+            this.$nextTick(() => {
+              this.moveDown(target);
+            });
+          },
+          getIndex(node) {
+            let index = 0;
+            while ((node = node.previousElementSibling)) {
+              index++;
+            }
+            return index;
+          },
+          deleteItem() {
+            for (;;) {
+              const index = this.getNextSelectedIndex();
+              if (index === null) {
+                break;
+              }
+              const item = this.list[index];
+              const resultsIndex = this.results.indexOf(item);
+              if (resultsIndex) {
+                this.results.splice(resultsIndex, 1);  
+              }
+              this.list.splice(index, 1);
+            }
+
+            if (this.focused && this.list.length !== 0) {
+              const index = this.getIndex(this.focused.parentElement);
+              if (index < this.list.length) {
+                this.setSelected(this.focused);
+              } else {
+                const li = this.focused.parentElement.previousElementSibling;
+                if (li) {
+                  this.setSelected(li.querySelector(".text-input"));
+                }
+              }
+            }
+
+            if (this.list.length === 0) {
+              this.focused = null;
+            }
+          },
+          getNextSelectedIndex() {
+            for (const [index, item] of this.list.entries()) {
+              if (item.selected) {
+                return index;
+              }
+            }
+            return null;
+          },
+          moveUp(target) {
+            if (!target) {
+              target = this.$refs.list.querySelector("li .text-input");
+              if (target) {
+                this.setSelected(target);
+              }
+              return;
+            }
+            const li = target.parentElement.previousElementSibling;
+            if (li) {
+              this.setSelected(li.querySelector(".text-input"));
+            } else {
+              this.$refs.search.querySelector("input").focus();
+            }
+          },
+          moveDown(target) {
+            if (!target) {
+              target = this.$refs.list.querySelector(
+                "li:last-child .text-input"
+              );
+              if (target) {
+                this.setSelected(target);
+              }
+              return;
+            }
+            const li = target.parentElement.nextElementSibling;
+            if (li) {
+              this.setSelected(li.querySelector(".text-input"));
+            }
+          }
+        }
+      });
+    </script>
+  </body>
+</html>
