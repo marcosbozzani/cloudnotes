@@ -12,5 +12,8 @@
     "start": "run-p build:* serve",
     "serve": "ws --directory public",
     "build:scss": "node-sass src/scss/ -o public/content/css/ --watch"
+  },
+  "resolutions": {
+    "lodash": "^4.17.19"
   }
 }
